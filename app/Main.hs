@@ -41,10 +41,12 @@ setOp i op = get >>= \x -> put $ Network (M.adjust (\x -> x { op = op }) i $ nod
 
 calculateDerivativesOf :: NodeIndex -> Action ()
 calculateDerivativesOf i = init >> go [i]
-    where init = get >>= put . M.adjust (\x -> x { derivative = 1 }) i nodes
-          go prev = do
+    where init = get >>= \(Network nodes ready) -> put $ Network (M.mapWithKey f nodes) ready
+          f j node = if i == j then node { derivative = 1 } else node { derivative = 0 }
+
+          go prev = undefined {-do
               (Network nodes _) <- get
-              forM_ prev $ \i -> children $ maybe undefined id $ M.lookup i nodes
+              forM_ prev $ \i -> children $ maybe undefined id $ M.lookup i nodes-}
 
 getDerivative :: NodeIndex -> Action Double
 getDerivative i = get >>= pure . derivative . maybe undefined id . M.lookup i . nodes
