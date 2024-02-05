@@ -3,7 +3,8 @@ module Main where
 import Control.Monad
 import Control.Monad.State
 import Control.Monad.Except
-import ListT
+import ListT hiding (repeat)
+import Data.List
 import qualified Data.Map as M
 
 type Action = StateT Network (ExceptT String IO)
@@ -30,8 +31,14 @@ compute m = runExceptT $ evalStateT m $ Network M.empty True
 getNode :: NodeIndex -> Action Node
 getNode i = get >>= maybe (throwError "Illegal node") pure . M.lookup i . nodes
 
+changeNode :: NodeIndex -> (Node -> Node) -> Action ()
+changeNode i f = get >>= \x -> put $ x { nodes = M.adjust f i $ nodes x }
+
+changeReady :: Bool -> Action ()
+changeReady r = get >>= \x -> put $ x { ready = r }
+
 setOp :: NodeIndex -> NodeOp -> Action ()
-setOp i op = get >>= \x -> put $ Network (M.adjust (\x -> x { op = op }) i $ nodes x) False
+setOp i op = changeNode i (\x -> x { op = op }) >> changeReady False
 
 getDerivative :: NodeIndex -> Action Double
 getDerivative = getNode >=> pure . derivative
@@ -43,10 +50,10 @@ getValue i = do
     if r then
         pure $ value node
     else do
-        value <- eval (op node) <$> mapM getValue (children node)
+        value <- (eval . op) node <$> mapM getValue (children node)
 
-        (Network nodes _) <- get
-        put $ Network (M.adjust (\x -> x { value = value }) i nodes) True
+        changeNode i $ \x -> x { value = value }
+        changeReady True
 
         pure value
 
@@ -55,19 +62,17 @@ calculateDerivativesOf i = init >> go [i]
     where init = get >>= \(Network nodes ready) -> put $ Network (M.mapWithKey f nodes) ready
           f j node = if i == j then node { derivative = 1 } else node { derivative = 0 }
 
-          go :: [NodeIndex] -> Action ()
           go prevLayerIdxs = do
               prevLayer <- mapM getNode prevLayerIdxs
-              gradients <- toList $ do
+              conns <- toList $ do
                   prev <- fromFoldable prevLayer
                   values <- lift $ mapM getValue $ children prev
-                  let gradients = grad (op prev) values
-                  fromFoldable $ zip (children prev) gradients
+                  let gradients = (grad . op) prev values
+                  fromFoldable $ zip3 (repeat prev) (children prev) gradients
 
-              pure ()
-
-              {-forM_ (zip (children prev) gradients) $ \(i, g) -> do
-                  pure ()-}
+              forM_ conns $ \(node, i, g) -> do
+                  changeNode i $ \x -> x { derivative = derivative x + derivative node * g }
+              go $ nub $ map (\(_, i, _) -> i) conns
 
 node :: NodeOp -> [NodeIndex] -> Action NodeIndex
 node op children = do
