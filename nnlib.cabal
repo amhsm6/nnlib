@@ -9,6 +9,7 @@ executable nnlib
 
     build-depends:    base ^>=4.16.4.0
                     , mtl
+                    , list-t
                     , containers
 
     hs-source-dirs:   app
